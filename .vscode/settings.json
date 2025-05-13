@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "windows.h": "c",
+        "psapi.h": "c",
+        "string.h": "c",
+        "aplib.h": "c",
+        "xmemory": "c",
+        "ostream": "c",
+        "xlocale": "c"
+    }
+}
