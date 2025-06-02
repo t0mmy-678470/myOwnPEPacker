@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build FASM",
+      "type": "shell",
+      "command": "${config:fasm.assemblerPath}\\fasm.exe",
+      "args": [
+        "e:\\cs\\ctf\\study\\reverse\\malware\\adl_project\\myPacker\\stub\\stub.asm",
+        "e:\\cs\\ctf\\study\\reverse\\malware\\adl_project\\myPacker\\stub\\stub.exe"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "FASM": "${config:fasm.assemblerPath}",
+          "INCLUDE": "${config:fasm.includePath}"
+        }
+      }
+    }
+  ],
+  "activeFilePath": "e:\\cs\\ctf\\study\\reverse\\malware\\adl_project\\myPacker\\stub\\stub.asm",
+  "executionFilePath": "e:\\cs\\ctf\\study\\reverse\\malware\\adl_project\\myPacker\\stub\\stub.exe",
+  "debuggerFilePath": "E:\\cs\\ctf\\tools\\x32_x64dbg\\release\\x96dbg.exe"
+}

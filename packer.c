@@ -6,7 +6,19 @@
 #define MOP3_LEN 0x14    // 
 #define ALIGNUP(target, align) ((target)+(align)-(target)%(align))
 
-void write_file(char* filename, unsigned char* pe, long pe_len);
+typedef struct{
+    DWORD oep;
+    DWORD import_addr;
+    DWORD import_size;
+    DWORD export_addr;
+    DWORD export_size;
+    DWORD iat_addr;
+    DWORD iat_size;
+    DWORD reloc_addr;
+    DWORD reloc_size;
+} COMP_HDR;
+
+// void write_file(char* filename, unsigned char* pe, long pe_len);
 
 char* load_file(char* filename, long* len){
     FILE* fp;
@@ -66,7 +78,6 @@ void write_file(char* filename, unsigned char* pe, long pe_len){
         printf("write error");
     }
 }
-
 // unsigned char* cpySecHdr(unsigned char* pe, int* len){
 //     IMAGE_DOS_HEADER* dosHdr = (IMAGE_DOS_HEADER*) pe;
 //     IMAGE_NT_HEADERS* ntHdr;
@@ -135,8 +146,25 @@ DWORD vir2raw(unsigned char* pe, DWORD virAddr){
     return 0;
 }
 
+COMP_HDR* init_compress_header(unsigned char* pe){
+    COMP_HDR* comp_hdr = (COMP_HDR*) malloc(sizeof(COMP_HDR));
+    IMAGE_NT_HEADERS* ntHdr = (IMAGE_NT_HEADERS*)(pe + ((IMAGE_DOS_HEADER*)pe)->e_lfanew);
+    
+    comp_hdr->oep = ntHdr->OptionalHeader.AddressOfEntryPoint;  // virtual address
+    comp_hdr->import_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+    comp_hdr->import_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+    comp_hdr->export_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+    comp_hdr->export_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+    comp_hdr->iat_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress;
+    comp_hdr->iat_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size;
+    comp_hdr->reloc_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
+    comp_hdr->reloc_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+
+    return comp_hdr;
+}
+
 // 修正、新增 section( header)s
-void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, int stub_len){
+void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long stub_len){
     IMAGE_NT_HEADERS* ntHdr = (IMAGE_NT_HEADERS*)(pe + ((IMAGE_DOS_HEADER*)pe)->e_lfanew);
     IMAGE_FILE_HEADER* fileHdr = (IMAGE_FILE_HEADER*)((char*)ntHdr + sizeof(DWORD));
     // IMAGE_FILE_HEADER* fileHdr = (IMAGE_FILE_HEADER*)(ntHdr + ((LONGLONG)&(ntHdr->FileHeader) - (LONGLONG)ntHdr));
@@ -151,33 +179,41 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, int s
     int secAlign      = ntHdr->OptionalHeader.SectionAlignment;
 
     int secRawStart = secHdr->PointerToRawData;
-    // int secRawEnd   = ((IMAGE_SECTION_HEADER*)(secHdr + (sectionNums-1)*sizeof(IMAGE_SECTION_HEADER)))->PointerToRawData + \
-    //                   ((IMAGE_SECTION_HEADER*)(secHdr + (sectionNums-1)*sizeof(IMAGE_SECTION_HEADER)))->SizeOfRawData;        // aligned
     int secRawEnd   = secHdr[sectionNums-1].PointerToRawData + secHdr[sectionNums-1].SizeOfRawData;
     int secVirStart = secHdr->VirtualAddress;
-    // int secVirEnd   = ((IMAGE_SECTION_HEADER*)(secHdr + (sectionNums-1)*sizeof(IMAGE_SECTION_HEADER)))->VirtualAddress + \
-    //                   ((IMAGE_SECTION_HEADER*)(secHdr + (sectionNums-1)*sizeof(IMAGE_SECTION_HEADER)))->Misc.VirtualSize;     // no align
     int secVirEnd   = secHdr[sectionNums-1].VirtualAddress + secHdr[sectionNums-1].Misc.VirtualSize;
     int totalSectionRawSize = secRawEnd - secRawStart;
     int totalSectionVirSize = secVirEnd - secVirStart;
     int accuVirAddr = ALIGNUP(secVirEnd, secAlign), accuRawAddr = secRawStart;
-    // printf("size = %ld\n", sizeof(IMAGE_NT_HEADERS));
-    // printf("sec hdr: %s\n", (char*)ntHdr+sizeof(IMAGE_NT_HEADERS));
-    // printf("sec str: %x %x\n", *(unsigned char*)(pe+secRawStart), *(char*)(pe+secRawStart+1));
-    // printf("sec hdr len %d\n", secHdrsLen);
-    // printf("totalSectionRawSize %d\n", totalSectionRawSize);
-    // printf("sectionNums %d\n", sectionNums);
-    // printf("secVirStart %x\n", secVirStart);
-    // printf("secVirEnd %x\n", secVirEnd);
-    // printf("accuVirAddr %x\n", accuVirAddr);
+
+    // IMAGE_IMPORT_DESCRIPTOR* importTable = (IMAGE_IMPORT_DESCRIPTOR*)(pe + \
+    //     vir2raw(pe, ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress));
+    // IMAGE_IMPORT_DESCRIPTOR* tmpImpTable = importTable;
+    // int importTableNum = 1;
+    // while(1){
+    //     if(memcpy(tmpImpTable, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", sizeof(IMAGE_IMPORT_DESCRIPTOR))){
+    //         // tmpImpTable += sizeof(IMAGE_IMPORT_DESCRIPTOR);
+    //         tmpImpTable += 1;
+    //         importTableNum++;
+    //     }
+    //     else{
+    //         break;
+    //     }
+    // }
 
     //-------------------------  compress section headers and all sections together -------------------------
     // printf("compressing section headers and all sections together\n");
-    int main_len = secHdrsLen + totalSectionRawSize;
+    COMP_HDR* comp_hdr = init_compress_header(pe);
+    int main_len = sizeof(COMP_HDR) + secHdrsLen + totalSectionRawSize;
     unsigned char* main_data = (unsigned char*) malloc(sizeof(char) * main_len);
-    memcpy(main_data, (char*)ntHdr+sizeof(IMAGE_NT_HEADERS), secHdrsLen);
-    memcpy(main_data+secHdrsLen, pe+secRawStart, totalSectionRawSize);
+    memcpy(main_data, comp_hdr, sizeof(comp_hdr));
+    memcpy(main_data+sizeof(comp_hdr), (char*)ntHdr+sizeof(IMAGE_NT_HEADERS), secHdrsLen);
+    memcpy(main_data+sizeof(comp_hdr)+secHdrsLen, pe+secRawStart, totalSectionRawSize);
     unsigned char* compressed_data = compress(main_data, &main_len);
+    
+    // printf("main_len = %x\n", main_len);
+    free(comp_hdr);
+    comp_hdr = NULL;
     free(main_data);
     main_data = NULL;
 
@@ -204,7 +240,7 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, int s
 
     memcpy( pe+secHdr[sectionNums].PointerToRawData, compressed_data, main_len );
     free(compressed_data);
-    
+
     // append second section header .mop2
     // store stub
     strcpy(secHdr[sectionNums+1].Name, ".mop2");
@@ -271,28 +307,33 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, int s
     // memcpy( )
 }
 
-int stub_len = 276;
-unsigned char stub[] =
-"\xfc\x48\x83\xe4\xf0\xe8\xc0\x00\x00\x00\x41\x51\x41\x50"
-"\x52\x51\x56\x48\x31\xd2\x65\x48\x8b\x52\x60\x48\x8b\x52"
-"\x18\x48\x8b\x52\x20\x48\x8b\x72\x50\x48\x0f\xb7\x4a\x4a"
-"\x4d\x31\xc9\x48\x31\xc0\xac\x3c\x61\x7c\x02\x2c\x20\x41"
-"\xc1\xc9\x0d\x41\x01\xc1\xe2\xed\x52\x41\x51\x48\x8b\x52"
-"\x20\x8b\x42\x3c\x48\x01\xd0\x8b\x80\x88\x00\x00\x00\x48"
-"\x85\xc0\x74\x67\x48\x01\xd0\x50\x8b\x48\x18\x44\x8b\x40"
-"\x20\x49\x01\xd0\xe3\x56\x48\xff\xc9\x41\x8b\x34\x88\x48"
-"\x01\xd6\x4d\x31\xc9\x48\x31\xc0\xac\x41\xc1\xc9\x0d\x41"
-"\x01\xc1\x38\xe0\x75\xf1\x4c\x03\x4c\x24\x08\x45\x39\xd1"
-"\x75\xd8\x58\x44\x8b\x40\x24\x49\x01\xd0\x66\x41\x8b\x0c"
-"\x48\x44\x8b\x40\x1c\x49\x01\xd0\x41\x8b\x04\x88\x48\x01"
-"\xd0\x41\x58\x41\x58\x5e\x59\x5a\x41\x58\x41\x59\x41\x5a"
-"\x48\x83\xec\x20\x41\x52\xff\xe0\x58\x41\x59\x5a\x48\x8b"
-"\x12\xe9\x57\xff\xff\xff\x5d\x48\xba\x01\x00\x00\x00\x00"
-"\x00\x00\x00\x48\x8d\x8d\x01\x01\x00\x00\x41\xba\x31\x8b"
-"\x6f\x87\xff\xd5\xbb\xf0\xb5\xa2\x56\x41\xba\xa6\x95\xbd"
-"\x9d\xff\xd5\x48\x83\xc4\x28\x3c\x06\x7c\x0a\x80\xfb\xe0"
-"\x75\x05\xbb\x47\x13\x72\x6f\x6a\x00\x59\x41\x89\xda\xff"
-"\xd5\x63\x61\x6c\x63\x2e\x65\x78\x65\x00";
+// int stub_len = 276;
+// unsigned char stub[] =
+// "\xfc\x48\x83\xe4\xf0\xe8\xc0\x00\x00\x00\x41\x51\x41\x50"
+// "\x52\x51\x56\x48\x31\xd2\x65\x48\x8b\x52\x60\x48\x8b\x52"
+// "\x18\x48\x8b\x52\x20\x48\x8b\x72\x50\x48\x0f\xb7\x4a\x4a"
+// "\x4d\x31\xc9\x48\x31\xc0\xac\x3c\x61\x7c\x02\x2c\x20\x41"
+// "\xc1\xc9\x0d\x41\x01\xc1\xe2\xed\x52\x41\x51\x48\x8b\x52"
+// "\x20\x8b\x42\x3c\x48\x01\xd0\x8b\x80\x88\x00\x00\x00\x48"
+// "\x85\xc0\x74\x67\x48\x01\xd0\x50\x8b\x48\x18\x44\x8b\x40"
+// "\x20\x49\x01\xd0\xe3\x56\x48\xff\xc9\x41\x8b\x34\x88\x48"
+// "\x01\xd6\x4d\x31\xc9\x48\x31\xc0\xac\x41\xc1\xc9\x0d\x41"
+// "\x01\xc1\x38\xe0\x75\xf1\x4c\x03\x4c\x24\x08\x45\x39\xd1"
+// "\x75\xd8\x58\x44\x8b\x40\x24\x49\x01\xd0\x66\x41\x8b\x0c"
+// "\x48\x44\x8b\x40\x1c\x49\x01\xd0\x41\x8b\x04\x88\x48\x01"
+// "\xd0\x41\x58\x41\x58\x5e\x59\x5a\x41\x58\x41\x59\x41\x5a"
+// "\x48\x83\xec\x20\x41\x52\xff\xe0\x58\x41\x59\x5a\x48\x8b"
+// "\x12\xe9\x57\xff\xff\xff\x5d\x48\xba\x01\x00\x00\x00\x00"
+// "\x00\x00\x00\x48\x8d\x8d\x01\x01\x00\x00\x41\xba\x31\x8b"
+// "\x6f\x87\xff\xd5\xbb\xf0\xb5\xa2\x56\x41\xba\xa6\x95\xbd"
+// "\x9d\xff\xd5\x48\x83\xc4\x28\x3c\x06\x7c\x0a\x80\xfb\xe0"
+// "\x75\x05\xbb\x47\x13\x72\x6f\x6a\x00\x59\x41\x89\xda\xff"
+// "\xd5\x63\x61\x6c\x63\x2e\x65\x78\x65\x00";
+
+
+unsigned char* stub;
+
+long stub_len;
 
 void print_banner(){
     SetConsoleOutputCP(CP_UTF8);
@@ -338,6 +379,7 @@ int main(int argc, char** argv){
     }
     // printf("check file finished\n");
 
+    stub = load_file("./stub/stub.bin", &stub_len);
     reBuildSections(pe, &pe_len, stub, stub_len);
 
     char* out_filename = (char*) malloc(sizeof(char)*(strlen(argv[1])+8) );

@@ -1,13 +1,13 @@
-#define ALIGNUP(target, align) (target+align-target%align)
+// #define ALIGNUP(target, align) (target+align-target%align)
 
-int test;
+// int test;
 
 
-int _start(){
-    test = 0;
-    test++;
-    return test;
-}
+// int _start(){
+//     test = 0;
+//     test++;
+//     return test;
+// }
 
 // int main(){
 //     test = 0;
@@ -24,3 +24,11 @@ int _start(){
 //     // test++;
 //     printf("%d\n", ALIGNUP(2001, 2000));
 // }
+
+#include <stdio.h>
+
+int main(){
+    printf("hello world!\n");
+    getchar();
+    return 0;
+}
