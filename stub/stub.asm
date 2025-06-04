@@ -7,10 +7,10 @@ include "hldr.inc"
 ; section .text
 
 _main:
-    push rax
+    ; push rax
     push rbx
     push rcx
-    push rdx
+    ; push rdx
     push rbp
     push rsi
     push rdi
@@ -65,23 +65,42 @@ _main:
     call aPsafe_depack
     add rsp, 40
 
+    ; get module handle
+    call get_module_handle ; GetModuleHandleA 後 call virtualProtect 才不會出現 violate access
+
     ; get write permit to modify header
-    mov rcx, [rbp - stack_imageBase]; rcx = start_addr
+    mov rcx, rax    ; base addr
+    ; mov rcx, [rbp - stack_imageBase]; rcx = start_addr
     mov rdx, 0x500; rdx = size
     mov r8, PAGE_READWRITE; r8  = new_protect
-    mov r9, [rbp - stack_tmp]; r9  = ret_old_protect
+    lea r9, [rbp - stack_tmp]; r9  = ret_old_protect
     call get_permit
+
+    ; ; virtual query
+    ; mov rcx, [rbp - stack_imageBase]; rcx = start_addr
+    ; lea rdx, [rbp - stack_tmp]; rdx  = out buffer
+    ; mov r8, 0x1000; r8 = size
+    ; call virtualQuery
 
     mov rcx, [rbp - stack_imageBase]
     mov rdx, [rbp - stack_allocMemAddr] 
     call recover_header
+
+    mov rcx, [rbp - stack_imageBase]; rcx = imageBase
+    mov rdx, [rbp - stack_allocMemAddr] ; rdx = decompressedAddr
+    call recover_sections
     
+    mov rcx, [rbp - stack_imageBase]; rcx = imageBase
+    mov rdx, [rbp - stack_allocMemAddr] ; rdx = decompressedAddr
     call recover_iat
+
     ; go to oep
-    mov rcx, [rbp - stack_imageBase]
-    mov eax, [rcx + _IMAGE_NT_HEADERS_OptionalHeader + _IMAGE_OPTIONAL_HEADER_AddressOfEntryPoint]
+    mov rcx, [rbp - stack_imageBase]    ; image base
+    movzx rbx, WORD [rcx + lfanew]      ; pe offset
+    add rbx, rcx                        ; nt header addr
+    mov eax, [rbx + _IMAGE_NT_HEADERS_OptionalHeader + _IMAGE_OPTIONAL_HEADER_AddressOfEntryPoint]
     add rax, rcx
-    jmp rax
+    ; jmp rax
 
     ; add rsp, 0x58
     leave
@@ -93,10 +112,59 @@ _main:
     pop rdi
     pop rsi
     pop rbp
-    pop rdx
+    ; pop rdx
     pop rcx
     pop rbx
-    pop rax
+    ; pop rax
+    mov rdx, rax
+    jmp rax
+
+; rcx = image base
+; rdx = decompressed address
+recover_sections:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 0x30
+    ; -0x8 : image base
+    ; -0x10: decompressed address
+
+    mov [rbp - 0x8], rcx
+    mov [rbp - 0x10], rdx
+
+    ; mov rdx, [rdx + COMP_HDR_size]  ; decompressed section header
+
+    movzx rax, word [rcx + lfanew]
+    add rax, rcx      ; nt header address
+    movzx rcx, WORD [rax + _IMAGE_NT_HEADERS_FileHeader + _IMAGE_FILE_HEADER_NumberOfSections] ; num of sections
+    sub rcx, 3        ; num of orignial sections
+    ; add rax, _IMAGE_NT_HEADERS_size ; section header address
+
+    mov rbx, _IMAGE_SECTION_HEADER_size
+    mov rax, rcx      ; number of sections
+    mul ebx           ; eax = section header len
+    mov rsi, [rbp - 0x10]
+    add rsi, COMP_HDR_size
+    mov rbx, rsi      ; decompressed section header's address
+    add rsi, rax      ; decompressed section's address
+    
+.conti_copy:
+    mov edi, [rbx + _IMAGE_SECTION_HEADER_VirtualAddress] ; dst vir rva
+    add rdi, [rbp - 0x8]                                  ; dst vir address 
+    mov r8d, [rbx + _IMAGE_SECTION_HEADER_SizeOfRawData]  ; len to copy
+    
+    push rcx
+    mov rcx, r8
+    cld
+    rep movsb         ; copy [rsi] to [rdi]
+    pop rcx
+
+    add rbx, _IMAGE_SECTION_HEADER_size
+    dec rcx
+    cmp rcx, 0
+    jne .conti_copy
+
+    leave 
+    ret
 
 ; rcx = start_addr
 ; rdx = size
@@ -130,16 +198,67 @@ get_permit:
   .name:
     db "VirtualProtect", 0
 
+get_module_handle:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 0x20 
+
+    call get_kernel32_dll_base
+    mov rcx, rax      ; rcx: dll_base
+    lea rdx, [.name]  ; rdx: target_name_address
+    mov r8 , 17       ; r8: target_name_len
+    call find_proc_addr
+    
+    mov rcx, 0
+    call rax
+    leave
+    ret
+
+  .name:
+    db "GetModuleHandleA", 0
+
+; rcx = start_addr
+; rdx = out_buffer
+; r8  = size
+virtualQuery:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 0x20 
+
+    mov [rbp - 0x8], rcx
+    mov [rbp - 0x10], rdx
+    mov [rbp - 0x18], r8
+
+    call get_kernel32_dll_base
+    mov rcx, rax      ; rcx: dll_base
+    lea rdx, [.name]  ; rdx: target_name_address
+    mov r8 , 13       ; r8: target_name_len
+    call find_proc_addr
+
+    mov rcx, [rbp - 0x8]
+    mov rdx, [rbp - 0x10]
+    mov r8, [rbp - 0x18]
+    call rax
+
+    leave
+    ret
+
+  .name:
+    db "VirtualQuery", 0
+
 ; rcx = imageBase
 ; rdx = decompressedAddr
 recover_iat:
     push rbp
     mov rbp, rsp
-    sub rsp, 0x20
+    sub rsp, 0x58
     ; -0x8 : cur import table addr
     ; -0x10: loadLibraryA addr
     ; -0x18: getProcAddress addr
-
+    ; -0x20: image base
+    ; -0x28: dll import name table addr's addr
+    ; -0x30: dll handle
+    mov [rbp - 0x20], rcx
     mov rbx, rcx                       ; pe image base
     movzx rax, WORD [rbx + lfanew]     ; nt header offset
     add rax, rbx                       ; nt header address
@@ -166,7 +285,7 @@ recover_iat:
   .go_next_import_table:
     ; check import table not empty
     mov rcx, _IMAGE_IMPORT_DESCRIPTOR_size
-    mov rax, [rbp - 0x8]
+    mov rax, [rbp - 0x8]  ; cur import table addr
 
     .check_exit:
       dec rcx
@@ -180,29 +299,35 @@ recover_iat:
       ; get dll handle
       mov rax, [rbp - 0x8]    ; cur import table addr
       mov ecx, [rax + _IMAGE_IMPORT_DESCRIPTOR_Name]
-      add rcx, rbx            ; library name
+      add rcx, [rbp - 0x20]            ; library name
       call QWORD [rbp - 0x10]       ; call loadLibraryA
         ; rax = library handle
 
       ; get func addr
-      mov rcx, rax            ; getProcAddress arg1: dll handle
+      mov [rbp-0x30], rax            ; getProcAddress arg1: dll handle
       mov rax, [rbp - 0x8]    ; cur import table
-      mov r10, [rax + _IMAGE_IMPORT_DESCRIPTOR_FirstThunk]
-      add r10, rbx            ; dll import name table addr's addr
+      mov r10d, [rax + _IMAGE_IMPORT_DESCRIPTOR_FirstThunk]
+      add r10, [rbp - 0x20]            ; dll import name table addr's addr
+      mov [rbp - 0x28], r10
 
-      .find_func_addr:
-        cmp QWORD [r10], 0
+      .find_func_addr:  
+        mov r11, [r10]                   ; dll import name table RVA
+        cmp r11, 0
         je .dll_func_fin
-        mov rdx, r10
+        add r11, [rbp - 0x20]            ; dll import name table addr (+2 => name)
+        mov rdx, r11
         add rdx, 2              ; func name address (because first two bytes are Hint)
+        mov rcx, [rbp - 0x30]
         call QWORD [rbp - 0x18]       ; call getProcAddress
         cmp rax, 0             
         jne .find_func_addr_success
         int 3                   ; find function error
 
         .find_func_addr_success:
+          mov r10, [rbp - 0x28]
           mov [r10], rax
           add r10, 8              ; go to next import name table addr's addr
+          mov [rbp - 0x28], r10
           jmp .find_func_addr
 
       .dll_func_fin:
@@ -216,7 +341,7 @@ recover_iat:
   .loadLibraryAName:
     db "LoadLibraryA", 0
   .getProcAddressName:
-    db "getProcAddress", 0
+    db "GetProcAddress", 0
 
 ; rcx = imageBase
 ; rdx = decompressedAddr

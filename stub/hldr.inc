@@ -8,6 +8,7 @@ FILE_WRITE_DATA                 equ     2
 PAGE_EXECUTE_READ               equ     20h
 PAGE_EXECUTE_READWRITE          equ     40h
 PAGE_READWRITE                  equ     4 
+PAGE_READONLY                   equ     2
 
 MEM_COMMIT                      equ     1000h
 MEM_RESERVE                     equ     2000h
@@ -121,6 +122,7 @@ IMAGE_DIRECTORY_ENTRY_IAT                          equ 0e8h   ; Import Address T
 IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT                 equ 0f0h   ; Delay Load Import Descriptors
 IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR               equ 0f8h   ; COM Runtime descriptor
 
+
 DIRECTORY_VirtualAddress                           equ 0
 DIRECTORY_Size                                     equ 4
 _IMAGE_DATA_DIRECTORY_size                         equ 8
@@ -221,10 +223,11 @@ COMP_HDR_iat_addr                             equ 14h
 COMP_HDR_iat_size                             equ 18h
 COMP_HDR_reloc_addr                           equ 1ch
 COMP_HDR_reloc_size                           equ 20h
+COMP_HDR_size                                 equ 24h
 
 stack_headerAddr                              equ 8
 stack_sectionNum                              equ 10h
-stack_imageBase                                equ 18h
+stack_imageBase                               equ 18h
 stack_allocMemAddr                            equ 20h
 stack_mop1HdrAddr                             equ 28h
 stack_decompressedSize                        equ 30h

@@ -160,6 +160,21 @@ COMP_HDR* init_compress_header(unsigned char* pe){
     comp_hdr->reloc_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
     comp_hdr->reloc_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
 
+    // printf("oep = 0x%lx\n", comp_hdr->oep);
+    // printf("imoprt addr = 0x%lx\n", comp_hdr->import_addr);
+    // printf("import size = 0x%lx\n", comp_hdr->import_size);
+    // printf("export addr = 0x%lx\n", comp_hdr->export_addr);
+    // printf("export size = 0x%lx\n", comp_hdr->export_size);
+    // printf("iat addr = 0x%lx\n", comp_hdr->iat_addr);
+    // printf("iat size = 0x%lx\n", comp_hdr->iat_size);
+    // printf("reloc addr = 0x%lx\n", comp_hdr->reloc_addr);
+    // printf("reloc size = 0x%lx\n", comp_hdr->reloc_size);
+    // for(int i=0;i<sizeof(COMP_HDR);i+=16){
+    //     for(int j=i;j<i+16;j++){
+    //         printf("%02lx ", *((unsigned char*)(comp_hdr) + j));
+    //     }
+    //     printf("\n");
+    // }
     return comp_hdr;
 }
 
@@ -171,7 +186,7 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     // printf("fileHdr: %x %x\n", *((char*)fileHdr), *((char*)fileHdr+1));
     // printf("offset: %ld\n", ((LONGLONG)&(ntHdr->FileHeader) - (LONGLONG)ntHdr));
     // IMAGE_OPTIONAL_HEADER64 optHdr = (IMAGE_OPTIONAL_HEADER64)(ntHdr->OptionalHeader);
-    IMAGE_SECTION_HEADER* const secHdr = (IMAGE_SECTION_HEADER*)((char*)ntHdr + sizeof(IMAGE_NT_HEADERS));
+    IMAGE_SECTION_HEADER* secHdr = (IMAGE_SECTION_HEADER*)((char*)ntHdr + sizeof(IMAGE_NT_HEADERS));
     // IMAGE_SECTION_HEADER* tmpsecHdr = secHdr;
     int sectionNums = fileHdr->NumberOfSections;
     int secHdrsLen    = sectionNums * sizeof(IMAGE_SECTION_HEADER);
@@ -206,9 +221,17 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     COMP_HDR* comp_hdr = init_compress_header(pe);
     int main_len = sizeof(COMP_HDR) + secHdrsLen + totalSectionRawSize;
     unsigned char* main_data = (unsigned char*) malloc(sizeof(char) * main_len);
-    memcpy(main_data, comp_hdr, sizeof(comp_hdr));
-    memcpy(main_data+sizeof(comp_hdr), (char*)ntHdr+sizeof(IMAGE_NT_HEADERS), secHdrsLen);
-    memcpy(main_data+sizeof(comp_hdr)+secHdrsLen, pe+secRawStart, totalSectionRawSize);
+    memcpy(main_data, comp_hdr, sizeof(COMP_HDR));
+    memcpy(main_data+sizeof(COMP_HDR), (char*)ntHdr+sizeof(IMAGE_NT_HEADERS), secHdrsLen);
+    memcpy(main_data+sizeof(COMP_HDR)+secHdrsLen, pe+secRawStart, totalSectionRawSize);
+    // for(int i=0;i<sizeof(COMP_HDR);i+=16){
+    //     for(int j=i;j<i+16;j++){
+    //         printf("%02lx ", *((unsigned char*)(main_data) + j));
+    //     }
+    //     printf("\n");
+    // }
+    // printf("sizeof comp_hdr = %ld\n", sizeof(COMP_HDR));
+    
     unsigned char* compressed_data = compress(main_data, &main_len);
     
     // printf("main_len = %x\n", main_len);
@@ -219,7 +242,7 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
 
     // give write permission to all section
     for(short i=0;i<sectionNums;i++){
-        secHdr[i].Characteristics += IMAGE_SCN_MEM_WRITE;
+        secHdr[i].Characteristics |= IMAGE_SCN_MEM_WRITE;
         secHdr[i].SizeOfRawData = 0;
         secHdr[i].PointerToRawData = 0;
         // secHdr += sizeof(IMAGE_SECTION_HEADER);
