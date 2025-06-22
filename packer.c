@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MOP3_LEN 0x14    // 
+// #define MOP3_LEN 0x14    // 
 #define ALIGNUP(target, align) ((target)+(align)-(target)%(align))
 
 typedef struct{
@@ -200,6 +200,7 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     int totalSectionRawSize = secRawEnd - secRawStart;
     int totalSectionVirSize = secVirEnd - secVirStart;
     int accuVirAddr = ALIGNUP(secVirEnd, secAlign), accuRawAddr = secRawStart;
+    int mopLen = 0;
 
     // IMAGE_IMPORT_DESCRIPTOR* importTable = (IMAGE_IMPORT_DESCRIPTOR*)(pe + \
     //     vir2raw(pe, ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress));
@@ -240,13 +241,26 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     free(main_data);
     main_data = NULL;
 
-    // give write permission to all section
-    for(short i=0;i<sectionNums;i++){
-        secHdr[i].Characteristics |= IMAGE_SCN_MEM_WRITE;
-        secHdr[i].SizeOfRawData = 0;
-        secHdr[i].PointerToRawData = 0;
-        // secHdr += sizeof(IMAGE_SECTION_HEADER);
+    //------------------------- store uncompressed data -------------------------
+    int src;
+    // resource directory
+    int size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size;
+    unsigned char* rsrc_bak;
+    if (size != 0){
+        src = vir2raw(pe, ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress);
+        rsrc_bak = (unsigned char*)malloc(sizeof(char) * size);
+        memcpy(rsrc_bak, pe+src, size);
     }
+
+    // load config directory
+    size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].Size;
+    unsigned char* load_config_bak;
+    if(size != 0){
+        src = vir2raw(pe, ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress);
+        load_config_bak = (unsigned char*)malloc(sizeof(char) * size);
+        memcpy(load_config_bak, pe+src, size);
+    }
+
     
     //------------------------- append 3 section header -------------------------
     // printf("appending section header\n");
@@ -281,17 +295,45 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     // store uncompressed data
     IMAGE_IMPORT_DESCRIPTOR imp_table;
     strcpy(secHdr[sectionNums+2].Name, ".mop3");
-    secHdr[sectionNums+2].Characteristics = IMAGE_SCN_MEM_READ;
-    secHdr[sectionNums+2].Misc.VirtualSize = MOP3_LEN;         // no need to align
     secHdr[sectionNums+2].VirtualAddress = accuVirAddr;
-    accuVirAddr += ALIGNUP(MOP3_LEN, secAlign);
     secHdr[sectionNums+2].PointerToRawData = accuRawAddr;
-    accuRawAddr += ALIGNUP(MOP3_LEN, fileAlign);
-    secHdr[sectionNums+2].SizeOfRawData = ALIGNUP(MOP3_LEN, fileAlign);
-    // copy empty import table
-    // memcpy( pe+secHdr[sectionNums+2].PointerToRawData, &imp_table, sizeof(imp_table));
-    // memcpy( pe+secHdr[sectionNums+2].PointerToRawData, "????????????????????", 20);
-    memset(pe+secHdr[sectionNums+2].PointerToRawData, 0, sizeof(IMAGE_IMPORT_DESCRIPTOR));
+    
+    // import directory
+    // mopLen = (mopLen/0x10)*0x10 + 0x10;
+    memset(pe+secHdr[sectionNums+2].PointerToRawData + mopLen, 0, sizeof(IMAGE_IMPORT_DESCRIPTOR));
+    ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = \
+    secHdr[sectionNums+2].VirtualAddress + mopLen;
+    ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = sizeof(imp_table);
+    mopLen += sizeof(IMAGE_IMPORT_DESCRIPTOR);
+    
+    // resource directory
+    size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size;
+    if (size != 0){
+        memcpy(pe+secHdr[sectionNums+2].PointerToRawData+mopLen, rsrc_bak, size);
+        mopLen = ALIGNUP(mopLen, fileAlign);
+        ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress = \
+        secHdr[sectionNums+2].VirtualAddress + mopLen;
+        mopLen += size; 
+        free(rsrc_bak);
+    }
+
+    // load config directory
+    size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].Size;
+    if(size != 0){
+        // mopLen = (mopLen/0x10)*0x10 + 0x10;
+        mopLen = ALIGNUP(mopLen, fileAlign);
+        memcpy(pe+secHdr[sectionNums+2].PointerToRawData+mopLen, load_config_bak, size);
+        ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress = \
+                                                    secHdr[sectionNums+2].VirtualAddress + mopLen;
+        mopLen += size; 
+        free(load_config_bak);
+    }
+
+    accuVirAddr += ALIGNUP(mopLen, secAlign);
+    accuRawAddr += ALIGNUP(mopLen, fileAlign);
+    secHdr[sectionNums+2].Characteristics = IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_READ;
+    secHdr[sectionNums+2].Misc.VirtualSize = mopLen;         // no need to align
+    secHdr[sectionNums+2].SizeOfRawData = ALIGNUP(mopLen, fileAlign);
 
     //------------------------- add offset to section raw data addr if needed -------------------------
     // printf("adding offset to section raw data addr if needed\n");
@@ -304,6 +346,13 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     }
     *pe_len = secHdr[sectionNums+2].PointerToRawData + secHdr[sectionNums+2].SizeOfRawData;
 
+    // give write permission to all section
+    for(short i=0;i<sectionNums;i++){
+        secHdr[i].Characteristics |= IMAGE_SCN_MEM_WRITE;
+        secHdr[i].SizeOfRawData = 0;
+        secHdr[i].PointerToRawData = 0;
+    }
+
     //------------------------- modify headers -------------------------
     // printf("modifing headers\n");
     fileHdr->NumberOfSections += 3;
@@ -313,16 +362,12 @@ void reBuildSections(unsigned char* pe, long* pe_len, unsigned char* stub, long 
     ntHdr->OptionalHeader.DllCharacteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
     ntHdr->OptionalHeader.CheckSum = 0;
     for(int i=0;i<15;i++){
-        ntHdr->OptionalHeader.DataDirectory[i].VirtualAddress=0;
-        ntHdr->OptionalHeader.DataDirectory[i].Size=0;
+        if (i!=IMAGE_DIRECTORY_ENTRY_RESOURCE && i!=IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG && i!=IMAGE_DIRECTORY_ENTRY_IMPORT){
+            ntHdr->OptionalHeader.DataDirectory[i].VirtualAddress=0;
+            ntHdr->OptionalHeader.DataDirectory[i].Size=0;
+        }
     }
-    ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = \
-                                                            secHdr[sectionNums-1].VirtualAddress;
-    ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = sizeof(imp_table);
-    // ntHdr->OptionalHeader.DataDirectory[2].VirtualAddress=0;
-    // ntHdr->OptionalHeader.DataDirectory[2].Size=0;
-    // ntHdr->OptionalHeader.DataDirectory[3].VirtualAddress=0;
-    // ntHdr->OptionalHeader.DataDirectory[3].Size=0;
+
 
     //------------------------- copy content to sections -------------------------
     // printf("copying content to sections\n");
