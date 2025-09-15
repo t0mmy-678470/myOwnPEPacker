@@ -35,7 +35,7 @@ _main:
     mov [rbp-0x10], rbx ; exe section header num
     mov [rbp-0x18], rcx ; exe image base
 
-    ;;;;;;;;;;;;;; find compress data address
+    ;;;;;;;;;;;;;; find compress data address ;;;;;;;;;;;;;;
     mov rax, [rbp-0x10] ; total section num
     sub rax, 3
     mov bl, _IMAGE_SECTION_HEADER_size
@@ -43,7 +43,7 @@ _main:
     add rax, [rbp-0x8] ; mop1 header addr
     mov [rbp-0x28], rax ; mop1 header addr
 
-    ;;;;;;;;;;;;;;;; alloc memory to store compressed section
+    ;;;;;;;;;;;;;;;; alloc memory to store compressed section ;;;;;;;;;;;;;;;;
     ; can't use movzx rax, ... ; mov eax, ... will extend to rax automatically
     ; mov ecx, DWORD [rax + _IMAGE_SECTION_HEADER_VirtualSize] ; size to alloc, decompressed data size
     mov ecx, [rax + _IMAGE_SECTION_HEADER_VirtualAddress]
@@ -54,7 +54,7 @@ _main:
     call alloc_mem
     mov [rbp - 0x20], rax ; allocated memory address
 
-    ;;;;;;;;;;;;;;;; depack mop1 to location of alloced buffer
+    ;;;;;;;;;;;;;;;; depack mop1 to location of alloced buffer ;;;;;;;;;;;;;;;;
     mov rax, [rbp - 0x28]; mop1 header addr
     mov ecx, DWORD [rax + _IMAGE_SECTION_HEADER_VirtualAddress] ; mop1 rva
     add rcx, [rbp - 0x18] ; rcx = mop1 virtual addr = src addr

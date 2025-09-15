@@ -159,22 +159,6 @@ COMP_HDR* init_compress_header(unsigned char* pe){
     comp_hdr->iat_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size;
     comp_hdr->reloc_addr = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
     comp_hdr->reloc_size = ntHdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
-
-    // printf("oep = 0x%lx\n", comp_hdr->oep);
-    // printf("imoprt addr = 0x%lx\n", comp_hdr->import_addr);
-    // printf("import size = 0x%lx\n", comp_hdr->import_size);
-    // printf("export addr = 0x%lx\n", comp_hdr->export_addr);
-    // printf("export size = 0x%lx\n", comp_hdr->export_size);
-    // printf("iat addr = 0x%lx\n", comp_hdr->iat_addr);
-    // printf("iat size = 0x%lx\n", comp_hdr->iat_size);
-    // printf("reloc addr = 0x%lx\n", comp_hdr->reloc_addr);
-    // printf("reloc size = 0x%lx\n", comp_hdr->reloc_size);
-    // for(int i=0;i<sizeof(COMP_HDR);i+=16){
-    //     for(int j=i;j<i+16;j++){
-    //         printf("%02lx ", *((unsigned char*)(comp_hdr) + j));
-    //     }
-    //     printf("\n");
-    // }
     return comp_hdr;
 }
 
@@ -388,7 +372,7 @@ int main(int argc, char** argv){
         printf("not .exe format!\n");
         return 0;
     }
-    // printf("start loading file\n");
+
     // load target pe file
     long pe_len, *section_len=0;
     unsigned char* pe = load_file(argv[1], &pe_len);
@@ -400,7 +384,6 @@ int main(int argc, char** argv){
         printf("File doesn't in PE format\n");
         return 0;
     }
-    // printf("check file finished\n");
 
     stub = load_file("./stub/stub.bin", &stub_len);
     reBuildSections(pe, &pe_len, stub, stub_len);
@@ -411,11 +394,6 @@ int main(int argc, char** argv){
     write_file(out_filename, pe, pe_len);
     
     printf("successfully packed at %s\n", out_filename);
-
-    // IMAGE_NT_HEADERS* dosHdr->e_lfanew
-    // IMAGE_SCN_MEM_SHARED
-    // memcpy()
-
     
     return 0;
 }
